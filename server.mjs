@@ -10,6 +10,21 @@ const vertexClient = createVertexClient({ config, logger });
 const bridge = createOpenAiBridge({ config });
 const server = createProxyServer({ config, logger, vertexClient, bridge });
 
+server.on("error", (error) => {
+  if (error?.code === "EADDRINUSE") {
+    logger.error(
+      `Port ${config.port} on ${config.host} is already in use. Stop the existing process or change HOST/PORT in .env.`,
+    );
+    process.exit(1);
+  }
+
+  logger.error("Server failed to start", {
+    error: error.message,
+    code: error.code || "",
+  });
+  process.exit(1);
+});
+
 server.listen(config.port, config.host, () => {
   logger.info(
     `Vertex OpenAI proxy listening on http://${config.host}:${config.port} using default model ${config.defaultModel}`,
