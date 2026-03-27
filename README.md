@@ -76,7 +76,6 @@ VERTEX_MODEL=gemini-3.1-pro-preview
 ### 3. 启动
 
 ```powershell
-cd C:\Users\stran\Desktop\vertex
 npm start
 ```
 
@@ -255,28 +254,9 @@ Invoke-WebRequest `
   -Body $body | Select-Object -ExpandProperty Content
 ```
 
-## 换电脑部署建议
 
-如果你要发给别人用，推荐按这个方式整理：
 
-1. 保留源码
-2. 不要把 `.env` 发出去
-3. 不要把真实服务账号 JSON 提交到仓库
-4. 只提供：
-   - 源码
-   - `.env.example`
-   - README
-5. 让对方自己准备：
-   - `service-account.json`
-   - `.env`
 
-项目里已经忽略这些本地敏感文件：
-
-- `.env`
-- `service-account.json`
-- `*.log`
-
-见 [.gitignore](C:\Users\stran\Desktop\vertex\.gitignore)。
 
 ## 常见问题
 
