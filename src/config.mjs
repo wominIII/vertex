@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const DEFAULTS = {
-  host: "127.0.0.1",
+  host: "0.0.0.0",
   port: 8787,
   location: "global",
   defaultModel: "gemini-3.1-pro-preview",
