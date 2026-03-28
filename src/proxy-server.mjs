@@ -1,15 +1,23 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createSseParser } from "./sse.mjs";
+import { createAdminUi } from "./admin-ui.mjs";
 
 export function createProxyServer({ config, logger, vertexClient, bridge }) {
+  const adminUi = createAdminUi({ config, logger, vertexClient });
+
   return createServer(async (req, res) => {
     const startedAt = Date.now();
+    const requestId = randomUUID().slice(0, 8);
+    const clientIp = getClientIp(req);
 
     try {
+      logger.info(`REQ ${requestId} START ${req.method} ${req.url} from ${clientIp}`);
       logger.info("HTTP request started", {
+        requestId,
         method: req.method,
         url: req.url,
+        clientIp,
         userAgent: req.headers["user-agent"] || "",
       });
 
@@ -20,8 +28,13 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
         return;
       }
 
+      if (await adminUi.handleRequest(req, res)) {
+        return;
+      }
+
       if (!isAuthorized(req, config.inboundApiKey)) {
         logger.error("Request rejected due to invalid API key", {
+          requestId,
           method: req.method,
           url: req.url,
         });
@@ -68,7 +81,13 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
       }
 
       if (req.method === "POST" && req.url === "/v1/chat/completions") {
-        await handleChatCompletions(req, res, { config, logger, vertexClient, bridge });
+        await handleChatCompletions(req, res, {
+          config,
+          logger,
+          vertexClient,
+          bridge,
+          requestId,
+        });
         return;
       }
 
@@ -81,6 +100,7 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
       );
     } catch (error) {
       logger.error("Request failed", {
+        requestId,
         method: req.method,
         url: req.url,
         error: error.message,
@@ -94,7 +114,9 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
         res.end();
       }
     } finally {
+      logger.info(`REQ ${requestId} END ${req.method} ${req.url} in ${Date.now() - startedAt}ms`);
       logger.info("HTTP request finished", {
+        requestId,
         method: req.method,
         url: req.url,
         durationMs: Date.now() - startedAt,
@@ -103,17 +125,26 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
   });
 }
 
-async function handleChatCompletions(req, res, { config, logger, vertexClient, bridge }) {
+async function handleChatCompletions(req, res, { config, logger, vertexClient, bridge, requestId }) {
   const body = await readJsonBody(req);
   const requestedModel =
     typeof body.model === "string" && body.model.trim() ? body.model : config.defaultModel;
   const vertexModel = resolveVertexModel(requestedModel, config);
   const vertexPayload = bridge.toVertexPayload(body);
-  const isStream = Boolean(body.stream);
+  const requestedStream = Boolean(body.stream);
+  const isStream = config.enableStreaming && requestedStream;
 
+  logger.info(
+    `REQ ${requestId} CHAT model=${requestedModel} vertex=${vertexModel} stream=${isStream} messages=${
+      Array.isArray(body.messages) ? body.messages.length : 0
+    }`,
+  );
   logger.info("Incoming chat completion", {
+    requestId,
     requestedModel,
     vertexModel,
+    requestedStream,
+    streamingEnabled: config.enableStreaming,
     stream: isStream,
     messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
   });
@@ -133,7 +164,9 @@ async function handleChatCompletions(req, res, { config, logger, vertexClient, b
       usage: payload.usageMetadata,
     });
 
+    logger.info(`REQ ${requestId} CHAT OK finish=${candidate.finishReason || "UNKNOWN"}`);
     logger.info("Completed chat completion", {
+      requestId,
       requestedModel,
       vertexModel,
       finishReason: candidate.finishReason || "UNKNOWN",
@@ -150,13 +183,14 @@ async function handleChatCompletions(req, res, { config, logger, vertexClient, b
     logger,
     vertexClient,
     bridge,
+    requestId,
   });
 }
 
 async function streamChatCompletion(
   req,
   res,
-  { requestedModel, vertexModel, vertexPayload, logger, vertexClient, bridge },
+  { requestedModel, vertexModel, vertexPayload, logger, vertexClient, bridge, requestId },
 ) {
   const response = await vertexClient.callModel(vertexModel, vertexPayload, { stream: true });
   const completionId = `chatcmpl-${randomUUID()}`;
@@ -184,7 +218,9 @@ async function streamChatCompletion(
   });
   res.flushHeaders?.();
 
+  logger.info(`REQ ${requestId} STREAM OPEN model=${requestedModel}`);
   logger.info("Streaming chat completion ready", {
+    requestId,
     requestedModel,
     vertexModel,
     note: "headers-sent",
@@ -247,14 +283,22 @@ async function streamChatCompletion(
       res.end();
     }
 
+    logger.info(
+      `REQ ${requestId} STREAM DONE finish=${finalCandidate.finishReason || "UNKNOWN"} events=${eventCount}`,
+    );
     logger.info("Streaming chat completion sent", {
+      requestId,
       requestedModel,
       vertexModel,
       finishReason: finalCandidate.finishReason || "UNKNOWN",
       eventCount,
     });
   } catch (error) {
+    logger.error(
+      `REQ ${requestId} STREAM ERROR ${error.message}${error.cause ? ` (${error.cause.message || String(error.cause)})` : ""}`,
+    );
     logger.error("Streaming chat completion aborted", {
+      requestId,
       requestedModel,
       vertexModel,
       error: error.message,
@@ -287,6 +331,7 @@ async function streamChatCompletion(
         res.end();
       } catch (closeError) {
         logger.error("Failed to close streaming response cleanly", {
+          requestId,
           requestedModel,
           vertexModel,
           error: closeError.message,
@@ -310,8 +355,6 @@ async function streamChatCompletion(
 
 function resolveVertexModel(requestedModel, config) {
   if (!requestedModel) return config.defaultModel;
-  if (requestedModel === config.defaultModel) return config.defaultModel;
-  if (config.modelAliases.includes(requestedModel)) return config.defaultModel;
   return requestedModel;
 }
 
@@ -375,4 +418,13 @@ function writeCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+
+  return req.socket?.remoteAddress || "unknown";
 }

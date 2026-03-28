@@ -1,15 +1,20 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 const DEFAULTS = {
   host: "0.0.0.0",
   port: 8787,
   location: "global",
   defaultModel: "gemini-3.1-pro-preview",
+  defaultTemperature: null,
+  defaultTopP: null,
+  defaultTopK: null,
+  defaultMaxOutputTokens: null,
   logLevel: "debug",
   modelCacheTtlMs: 300000,
   tokenSkewMs: 60000,
   includeThoughts: true,
+  enableStreaming: true,
   thoughtsMode: "reasoning_content",
   thinkingBudget: 1024,
   maxFetchAttempts: 2,
@@ -17,6 +22,7 @@ const DEFAULTS = {
   oauthTokenUrl: "https://oauth2.googleapis.com/token",
   vertexApiBaseUrl: "https://aiplatform.googleapis.com",
   publisherModelsBaseUrl: "https://aiplatform.googleapis.com",
+  adminPassword: "vertex-admin",
 };
 
 const SUPPORTED_LOG_LEVELS = new Set(["error", "info", "debug"]);
@@ -31,20 +37,28 @@ export function createConfig({ cwd = process.cwd(), env = process.env } = {}) {
     host: env.HOST || DEFAULTS.host,
     port: parseInteger(env.PORT, DEFAULTS.port),
     location: env.VERTEX_LOCATION || DEFAULTS.location,
-    projectId: env.VERTEX_PROJECT_ID || credentialsInfo.credentials.project_id,
+    projectId: env.VERTEX_PROJECT_ID || credentialsInfo.credentials?.project_id || "",
     defaultModel: env.VERTEX_MODEL || DEFAULTS.defaultModel,
+    defaultTemperature: parseOptionalNumber(env.DEFAULT_TEMPERATURE, DEFAULTS.defaultTemperature),
+    defaultTopP: parseOptionalNumber(env.DEFAULT_TOP_P, DEFAULTS.defaultTopP),
+    defaultTopK: parseOptionalNumber(env.DEFAULT_TOP_K, DEFAULTS.defaultTopK),
+    defaultMaxOutputTokens: parseOptionalNumber(
+      env.DEFAULT_MAX_OUTPUT_TOKENS,
+      DEFAULTS.defaultMaxOutputTokens,
+    ),
     inboundApiKey: env.OPENAI_API_KEY || "",
-    modelAliases: parseList(env.MODEL_ALIASES),
+    adminPassword: env.ADMIN_PASSWORD || DEFAULTS.adminPassword,
     modelCacheTtlMs: parseInteger(env.MODEL_CACHE_TTL_MS, DEFAULTS.modelCacheTtlMs),
     logLevel: env.LOG_LEVEL || DEFAULTS.logLevel,
     tokenSkewMs: parseInteger(env.TOKEN_SKEW_MS, DEFAULTS.tokenSkewMs),
     includeThoughts: parseBoolean(env.INCLUDE_THOUGHTS, DEFAULTS.includeThoughts),
+    enableStreaming: parseBoolean(env.ENABLE_STREAMING, DEFAULTS.enableStreaming),
     thoughtsMode: env.THOUGHTS_MODE || DEFAULTS.thoughtsMode,
     thinkingBudget: parseInteger(env.THINKING_BUDGET, DEFAULTS.thinkingBudget),
     maxFetchAttempts: parseInteger(env.MAX_FETCH_ATTEMPTS, DEFAULTS.maxFetchAttempts),
     fetchRetryDelayMs: parseInteger(env.FETCH_RETRY_DELAY_MS, DEFAULTS.fetchRetryDelayMs),
     oauthTokenUrl: trimTrailingSlash(
-      env.GOOGLE_OAUTH_TOKEN_URL || credentialsInfo.credentials.token_uri || DEFAULTS.oauthTokenUrl,
+      env.GOOGLE_OAUTH_TOKEN_URL || credentialsInfo.credentials?.token_uri || DEFAULTS.oauthTokenUrl,
     ),
     vertexApiBaseUrl: trimTrailingSlash(env.VERTEX_API_BASE_URL || DEFAULTS.vertexApiBaseUrl),
     publisherModelsBaseUrl: trimTrailingSlash(
@@ -65,9 +79,14 @@ export function formatStartupSummary(config) {
     projectId: config.projectId,
     location: config.location,
     defaultModel: config.defaultModel,
-    modelAliases: config.modelAliases,
+    defaultTemperature: config.defaultTemperature,
+    defaultTopP: config.defaultTopP,
+    defaultTopK: config.defaultTopK,
+    defaultMaxOutputTokens: config.defaultMaxOutputTokens,
     inboundApiKey: maskSecret(config.inboundApiKey),
+    adminPassword: maskSecret(config.adminPassword),
     includeThoughts: config.includeThoughts,
+    enableStreaming: config.enableStreaming,
     thoughtsMode: config.thoughtsMode,
     thinkingBudget: config.thinkingBudget,
     maxFetchAttempts: config.maxFetchAttempts,
@@ -77,10 +96,6 @@ export function formatStartupSummary(config) {
 }
 
 function validateConfig(config) {
-  if (!config.projectId) {
-    throw new Error("Missing Vertex project id. Set VERTEX_PROJECT_ID or provide a valid service account.");
-  }
-
   if (!SUPPORTED_LOG_LEVELS.has(config.logLevel)) {
     throw new Error(`Unsupported LOG_LEVEL: ${config.logLevel}`);
   }
@@ -133,7 +148,18 @@ function resolveCredentials(cwd, env) {
   }
 
   const explicitPath = env.GOOGLE_APPLICATION_CREDENTIALS;
-  const resolvedPath = explicitPath || findServiceAccountFile(cwd) || failMissingCredentials();
+  const resolvedExplicitPath = explicitPath ? resolve(cwd, explicitPath) : "";
+  const fallbackPath = findServiceAccountFile(cwd);
+  const resolvedPath = pickExistingCredentialPath(resolvedExplicitPath, fallbackPath);
+
+  if (!resolvedPath) {
+    return {
+      credentials: null,
+      source: explicitPath
+        ? `missing: ${explicitPath}`
+        : "not configured",
+    };
+  }
 
   return {
     credentials: parseCredentialsJson(readFileSync(resolvedPath, "utf8"), resolvedPath),
@@ -175,10 +201,16 @@ function parseCredentialsJson(raw, sourceLabel) {
   return parsed;
 }
 
-function failMissingCredentials() {
-  throw new Error(
-    "No service account credentials found. Set GOOGLE_APPLICATION_CREDENTIALS, set GOOGLE_APPLICATION_CREDENTIALS_JSON, or place service-account.json in the project root.",
-  );
+function pickExistingCredentialPath(explicitPath, fallbackPath) {
+  if (explicitPath && existsSync(explicitPath)) {
+    return explicitPath;
+  }
+
+  if (fallbackPath && existsSync(fallbackPath)) {
+    return fallbackPath;
+  }
+
+  return "";
 }
 
 function parseBoolean(value, fallback) {
@@ -192,11 +224,10 @@ function parseInteger(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function parseList(value) {
-  return String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+function parseOptionalNumber(value, fallback = null) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function trimTrailingSlash(value) {
@@ -207,4 +238,12 @@ function maskSecret(value) {
   if (!value) return "(disabled)";
   if (value.length <= 6) return "***";
   return `${value.slice(0, 3)}***${value.slice(-3)}`;
+}
+
+export function toRelativeCredentialPath(config) {
+  if (!config.credentialsSource || config.credentialsSource.startsWith("inline env")) {
+    return "./service-account.json";
+  }
+
+  return `./${basename(config.credentialsSource)}`;
 }

@@ -9,9 +9,11 @@ export function createVertexClient({ config, logger }) {
   return {
     callModel,
     fetchAvailableModels,
+    resetCaches,
   };
 
   async function callModel(model, payload, { stream }) {
+    assertVertexConfigured();
     const token = await getAccessToken();
     const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
     const url =
@@ -59,6 +61,7 @@ export function createVertexClient({ config, logger }) {
   }
 
   async function fetchAvailableModels(forceRefresh = false) {
+    assertVertexConfigured();
     const now = Date.now();
     if (!forceRefresh && cachedModels.length && now < modelCacheExpiresAt) {
       return cachedModels;
@@ -104,6 +107,7 @@ export function createVertexClient({ config, logger }) {
   }
 
   async function getAccessToken() {
+    assertVertexConfigured();
     if (cachedAccessToken && Date.now() < accessTokenExpiresAt - config.tokenSkewMs) {
       logger.debug("Using cached Google access token", {
         expiresAt: new Date(accessTokenExpiresAt).toISOString(),
@@ -169,6 +173,13 @@ export function createVertexClient({ config, logger }) {
     return cachedAccessToken;
   }
 
+  function resetCaches() {
+    cachedAccessToken = "";
+    accessTokenExpiresAt = 0;
+    cachedModels = [];
+    modelCacheExpiresAt = 0;
+  }
+
   async function fetchWithRetry(url, options, label) {
     let lastError;
 
@@ -200,6 +211,20 @@ export function createVertexClient({ config, logger }) {
     }
 
     throw lastError;
+  }
+
+  function assertVertexConfigured() {
+    if (!config.credentials?.client_email || !config.credentials?.private_key) {
+      throw new Error(
+        "Vertex credentials are not configured yet. Start the server, open /admin, and import your service account JSON first.",
+      );
+    }
+
+    if (!config.projectId) {
+      throw new Error(
+        "Vertex project id is missing. Import a valid service account JSON in /admin or set VERTEX_PROJECT_ID.",
+      );
+    }
   }
 }
 

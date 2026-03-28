@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vertex Proxy Console</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <div id="loginOverlay" class="overlay">
+      <section class="login-card">
+        <p class="eyebrow">Vertex OpenAI Proxy</p>
+        <h1>管理控制台登录</h1>
+        <p class="lead">首次进入需要输入控制台密码。默认密码是 `vertex-admin`。</p>
+
+        <label class="field">
+          <span>控制台密码</span>
+          <input id="loginPassword" type="password" placeholder="输入控制台密码" />
+        </label>
+
+        <label class="remember">
+          <input id="rememberPassword" type="checkbox" />
+          <span>记住此浏览器中的密码</span>
+        </label>
+
+        <div class="login-actions">
+          <button id="loginBtn">登录</button>
+        </div>
+
+        <div id="loginStatus" class="login-status">等待登录</div>
+      </section>
+    </div>
+
+    <main id="appShell" class="shell hidden">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Vertex OpenAI Proxy</p>
+          <h1>本地控制台</h1>
+          <p class="lead">管理配置、拉取模型、导入服务账号 JSON</p>
+        </div>
+        <div class="hero-actions">
+          <div class="session-box">
+            <span>控制台已登录</span>
+            <code id="sessionHint">当前浏览器会话</code>
+          </div>
+          <div class="hero-buttons">
+            <button id="logoutBtn" class="secondary">退出登录</button>
+            <button id="loadBtn">刷新状态</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>运行状态</h2>
+          <div id="statusBox" class="status">等待加载</div>
+        </article>
+
+        <article class="card">
+          <h2>模型列表</h2>
+          <div class="actions">
+            <button id="refreshModelsBtn">拉取模型</button>
+          </div>
+          <pre id="modelsBox" class="codebox">[]</pre>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>配置开关</h2>
+            <p>保存后会写回 `.env`。`HOST`、`PORT` 建议重启后生效。</p>
+          </div>
+          <button id="saveConfigBtn">保存配置</button>
+        </div>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>HOST</span>
+            <input id="host" type="text" />
+          </label>
+          <label class="field">
+            <span>PORT</span>
+            <input id="port" type="number" />
+          </label>
+          <label class="field">
+            <span>区域</span>
+            <input id="location" type="text" />
+          </label>
+          <label class="field">
+            <span>默认温度</span>
+            <input id="defaultTemperature" type="number" step="0.1" placeholder="留空表示跟随请求" />
+          </label>
+          <label class="field">
+            <span>默认 Top P</span>
+            <input id="defaultTopP" type="number" step="0.1" placeholder="留空表示跟随请求" />
+          </label>
+          <label class="field">
+            <span>默认 Top K</span>
+            <input id="defaultTopK" type="number" step="1" placeholder="留空表示跟随请求" />
+          </label>
+          <label class="field">
+            <span>默认最大输出 Tokens</span>
+            <input
+              id="defaultMaxOutputTokens"
+              type="number"
+              step="1"
+              placeholder="留空表示跟随请求"
+            />
+          </label>
+          <label class="field">
+            <span>代理 Bearer Key</span>
+            <input id="inboundApiKey" type="text" />
+          </label>
+          <label class="field">
+            <span>日志级别</span>
+            <select id="logLevel">
+              <option value="error">error</option>
+              <option value="info">info</option>
+              <option value="debug">debug</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>思考输出</span>
+            <select id="thoughtsMode">
+              <option value="reasoning_content">reasoning_content</option>
+              <option value="content">content</option>
+              <option value="off">off</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>思考预算</span>
+            <input id="thinkingBudget" type="number" />
+          </label>
+          <label class="field">
+            <span>最大重试次数</span>
+            <input id="maxFetchAttempts" type="number" />
+          </label>
+          <label class="field">
+            <span>重试间隔毫秒</span>
+            <input id="fetchRetryDelayMs" type="number" />
+          </label>
+        </div>
+
+        <div class="toggle-grid">
+          <label class="toggle-card" for="includeThoughts">
+            <div class="toggle-copy">
+              <strong>启用思考内容</strong>
+              <span>控制是否向上游返回 reasoning_content 或 think 内容。</span>
+            </div>
+            <span class="switch">
+              <input id="includeThoughts" type="checkbox" />
+              <span class="slider day-night-slider">
+                <span class="slider-stars"></span>
+                <span class="slider-clouds"></span>
+                <span class="slider-thumb"></span>
+              </span>
+            </span>
+          </label>
+
+          <label class="toggle-card" for="enableStreaming">
+            <div class="toggle-copy">
+              <strong>启用流式传输</strong>
+              <span>关闭后即使客户端请求 stream，也会统一按非流式返回。</span>
+            </div>
+            <span class="switch">
+              <input id="enableStreaming" type="checkbox" />
+              <span class="slider day-night-slider">
+                <span class="slider-stars"></span>
+                <span class="slider-clouds"></span>
+                <span class="slider-thumb"></span>
+              </span>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>导入服务账号 JSON</h2>
+            <p>会保存为项目根目录的 `service-account.json`，并更新 `.env`。</p>
+          </div>
+          <button id="importCredentialsBtn">导入 JSON</button>
+        </div>
+        <textarea id="credentialsJson" class="codebox large" spellcheck="false" placeholder='粘贴完整服务账号 JSON'></textarea>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>修改控制台密码</h2>
+            <p>修改后，当前浏览器中的已记住密码也会自动更新。</p>
+          </div>
+          <button id="changePasswordBtn">更新密码</button>
+        </div>
+        <div class="form-grid">
+          <label class="field">
+            <span>当前密码</span>
+            <input id="currentPassword" type="password" />
+          </label>
+          <label class="field">
+            <span>新密码</span>
+            <input id="newPassword" type="password" />
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/ui/app.js"></script>
+  </body>
+</html>

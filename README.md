@@ -15,6 +15,7 @@
 - `GET /healthz`
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `GET /admin` 本地 Web 控制台
 - 支持 `stream: true`
 - 支持 Gemini 思考内容透传
 - 支持 Bearer Key 校验
@@ -93,6 +94,18 @@ npm run dev
 http://0.0.0.0:8787
 ```
 
+Web 控制台入口：
+
+```text
+http://127.0.0.1:8787/admin
+```
+
+控制台默认密码：
+
+```text
+vertex-admin
+```
+
 ## 配置说明
 
 ### 基础网络
@@ -151,17 +164,11 @@ Authorization: Bearer your-local-proxy-key
 
 如果不设置，则代理默认不校验上游 Bearer Key。
 
-### 模型别名
+### 模型使用
 
-- `MODEL_ALIASES`
-  逗号分隔
-  用来把某些上游写死的模型名映射到 `VERTEX_MODEL`
-
-例如：
-
-```env
-MODEL_ALIASES=gpt-4o,gpt-4.1
-```
+- 客户端直接使用 `/v1/models` 拉到的原始模型 ID
+- 不再提供模型别名映射
+- `VERTEX_MODEL` 仅作为客户端未传 `model` 时的默认值
 
 ### 日志与重试
 
@@ -182,7 +189,7 @@ MODEL_ALIASES=gpt-4o,gpt-4.1
   - `content`
   - `off`
 - `THINKING_BUDGET`
-  传给 Gemini 的 thinking budget
+  传给 Gemini 的思考预算
 
 推荐理解：
 
@@ -241,6 +248,34 @@ OPENAI_API_KEY=your-strong-secret
 如果你把代理暴露到公网但没有设置 `OPENAI_API_KEY`，别人就可能直接消耗你的 Vertex 配额。
 
 ## 接口示例
+
+## Web 控制台
+
+打开：
+
+```text
+http://127.0.0.1:8787/admin
+```
+
+当前支持：
+
+- 查看当前配置
+- 修改常用开关并写回 `.env`
+- 拉取并展示当前可用模型
+- 导入服务账号 JSON 到 `service-account.json`
+- 修改控制台密码
+
+控制台密码默认是：
+
+```text
+vertex-admin
+```
+
+你可以在控制台页面里直接修改，也可以在 `.env` 中设置：
+
+```env
+ADMIN_PASSWORD=your-new-password
+```
 
 ### 健康检查
 

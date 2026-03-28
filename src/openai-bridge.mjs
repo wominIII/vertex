@@ -46,9 +46,21 @@ export function createOpenAiBridge({ config }) {
     }
 
     const generationConfig = {};
-    if (typeof body.temperature === "number") generationConfig.temperature = body.temperature;
-    if (typeof body.top_p === "number") generationConfig.topP = body.top_p;
-    if (typeof body.max_tokens === "number") generationConfig.maxOutputTokens = body.max_tokens;
+    const temperature =
+      typeof body.temperature === "number" ? body.temperature : config.defaultTemperature;
+    const topP = typeof body.top_p === "number" ? body.top_p : config.defaultTopP;
+    const topK = typeof body.top_k === "number" ? body.top_k : config.defaultTopK;
+    const maxOutputTokens =
+      typeof body.max_tokens === "number"
+        ? body.max_tokens
+        : typeof body.max_completion_tokens === "number"
+          ? body.max_completion_tokens
+          : config.defaultMaxOutputTokens;
+
+    if (typeof temperature === "number") generationConfig.temperature = temperature;
+    if (typeof topP === "number") generationConfig.topP = topP;
+    if (typeof topK === "number") generationConfig.topK = topK;
+    if (typeof maxOutputTokens === "number") generationConfig.maxOutputTokens = maxOutputTokens;
     if (Array.isArray(body.stop) && body.stop.length) generationConfig.stopSequences = body.stop;
     if (config.includeThoughts) {
       generationConfig.thinkingConfig = {
