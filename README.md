@@ -4,8 +4,6 @@
 
 它适合这些场景：
 
-- 想让 `Cherry Studio`、`SillyTavern`、`New API`、各类 `OpenAI SDK` 客户端直接接入 Vertex
-- 想保留 `Gemini` 原始模型名，而不是再做一层模型别名
 - 想通过本地或局域网部署一个可配置的 Vertex 网关
 - 想用 Web 控制台导入服务账号 JSON、查看模型、修改常用配置
 
