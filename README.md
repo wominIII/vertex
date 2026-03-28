@@ -1,5 +1,9 @@
 # Vertex OpenAI Proxy
 
+## 界面预览
+
+![管理控制台截图](https://pan.zmer.top/f/X0i6/QQ20260328-110545.png)
+
 一个把 `Google Vertex AI / Gemini` 转成 `OpenAI 兼容 /v1` 接口的轻量代理。
 
 ## 界面预览
@@ -8,8 +12,6 @@
 
 它适合这些场景：
 
-- 想让 `Cherry Studio`、`SillyTavern`、`New API`、各类 `OpenAI SDK` 客户端直接接入 Vertex
-- 想保留 `Gemini` 原始模型名，而不是再做一层模型别名
 - 想通过本地或局域网部署一个可配置的 Vertex 网关
 - 想用 Web 控制台导入服务账号 JSON、查看模型、修改常用配置
 
