@@ -8,7 +8,6 @@
 - 保留 `Gemini` 原始模型名
 - 支持流式输出
 - 可选透传 Gemini 的思考内容
-- 尽量做到“换一台电脑，只改 `.env` 就能跑”
 
 ## 功能
 
@@ -78,7 +77,6 @@ VERTEX_MODEL=gemini-3.1-pro-preview
 ### 3. 启动
 
 ```powershell
-cd C:\Users\stran\Desktop\vertex
 npm start
 ```
 
@@ -206,6 +204,7 @@ Authorization: Bearer your-local-proxy-key
 THOUGHTS_MODE=content
 ```
 
+<<<<<<< HEAD
 ## Cherry Studio 配置
 
 在 Cherry Studio 里这样填：
@@ -295,6 +294,8 @@ Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8787/v1/models
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8787/v1/models?refresh=1
 ```
 
+=======
+>>>>>>> d4b30302d777bc8092b766f9bf40527d1e289c69
 ### 非流式聊天
 
 ```powershell
@@ -318,96 +319,8 @@ Invoke-WebRequest `
   -Body $body | Select-Object -ExpandProperty Content
 ```
 
-## 换电脑部署建议
 
-如果你要发给别人用，推荐按这个方式整理：
 
-1. 保留源码
-2. 不要把 `.env` 发出去
-3. 不要把真实服务账号 JSON 提交到仓库
-4. 只提供：
-   - 源码
-   - `.env.example`
-   - README
-5. 让对方自己准备：
-   - `service-account.json`
-   - `.env`
 
-项目里已经忽略这些本地敏感文件：
 
-- `.env`
-- `service-account.json`
-- `*.log`
 
-见 [.gitignore](C:\Users\stran\Desktop\vertex\.gitignore)。
-
-## 常见问题
-
-### 1. 启动时报找不到凭证
-
-检查：
-
-- 是否存在 `service-account.json`
-- 或者 `.env` 里是否设置了 `GOOGLE_APPLICATION_CREDENTIALS`
-- 或者是否提供了 `GOOGLE_APPLICATION_CREDENTIALS_JSON`
-
-### 2. Cherry 一直转圈
-
-先看控制台日志。
-
-重点看这些日志：
-
-- `HTTP request started`
-- `Incoming chat completion`
-- `Requesting new Google access token`
-- `Forwarding request to Vertex`
-- `Streaming chat completion ready`
-- `Streaming chat completion aborted`
-
-### 3. 能回复，但看不到思考内容
-
-优先把：
-
-```env
-THOUGHTS_MODE=content
-```
-
-### 4. 第二次请求偶发失败
-
-当前实现已经带：
-
-- access token 缓存
-- 请求自动重试
-
-如果仍有偶发问题，可以提高：
-
-```env
-MAX_FETCH_ATTEMPTS=3
-FETCH_RETRY_DELAY_MS=1000
-```
-
-## 安全提醒
-
-- 不要把真实服务账号 JSON 提交到 Git 仓库
-- 不要把 `.env` 提交到 Git 仓库
-- 如果服务账号已经泄露，去 GCP 里立刻轮换或废弃该密钥
-- 如果你把代理暴露到公网，务必设置 `OPENAI_API_KEY`，并最好再放到反向代理后面
-
-## 当前定位
-
-这是一个轻量、可读、可改的小代理，不是完整网关产品。
-
-它适合：
-
-- 本地开发
-- Cherry Studio / New API / OpenAI SDK 接入 Vertex
-- 小范围自用
-- 二次开发
-
-如果你后面要继续扩展，比较适合往这些方向加：
-
-- `embeddings`
-- `responses` 接口
-- `tools / function calling`
-- 多模态输入
-- 更细的客户端兼容模式
