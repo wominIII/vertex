@@ -2,6 +2,10 @@
 
 一个把 `Google Vertex AI / Gemini` 转成 `OpenAI 兼容 /v1` 接口的轻量代理。
 
+## 界面预览
+
+![管理控制台截图](./docs/preview.png)
+
 它适合这些场景：
 
 - 想让 `Cherry Studio`、`SillyTavern`、`New API`、各类 `OpenAI SDK` 客户端直接接入 Vertex
