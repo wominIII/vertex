@@ -1,11 +1,5 @@
 # Vertex OpenAI Proxy
-
-## 界面预览
-
-![管理控制台截图](https://pan.zmer.top/f/X0i6/QQ20260328-110545.png)
-
 一个把 `Google Vertex AI / Gemini` 转成 `OpenAI 兼容 /v1` 接口的轻量代理。
-
 ## 界面预览
 
 ![管理控制台截图](./docs/preview.png)
