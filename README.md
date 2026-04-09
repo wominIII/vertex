@@ -370,11 +370,5 @@ PORT=8787
 - 客户端是否真的发送了 `stream: true`
 - 客户端自身是否支持 SSE 流显示
 
-## 安全建议
-
-- 不要把 `.env` 提交到 Git 仓库
-- 不要把 `service-account.json` 提交到 Git 仓库
-- 仓库公开时，务必确认 `.gitignore` 生效
-- 如果服务账号曾经泄露，立即去 Google Cloud 轮换密钥
 - 如果开放公网访问，务必设置强密码和 `OPENAI_API_KEY`
 
