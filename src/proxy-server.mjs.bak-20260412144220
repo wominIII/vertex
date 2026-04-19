@@ -109,13 +109,7 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
       });
 
       if (!res.headersSent && !res.writableEnded) {
-        sendError(
-          res,
-          Number.isInteger(error.statusCode) ? error.statusCode : 500,
-          error.message,
-          error.type || "server_error",
-          logger,
-        );
+        sendError(res, 500, error.message, "server_error", logger);
       } else if (!res.writableEnded) {
         res.end();
       }
@@ -136,7 +130,7 @@ async function handleChatCompletions(req, res, { config, logger, vertexClient, b
   const requestedModel =
     typeof body.model === "string" && body.model.trim() ? body.model : config.defaultModel;
   const vertexModel = resolveVertexModel(requestedModel, config);
-  const vertexPayload = await bridge.toVertexPayload(body);
+  const vertexPayload = bridge.toVertexPayload(body);
   const requestedStream = Boolean(body.stream);
   const isStream = config.enableStreaming && requestedStream;
 

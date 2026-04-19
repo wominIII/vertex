@@ -16,7 +16,6 @@
 - `POST /v1/chat/completions`
 - `GET /admin` 管理控制台
 - 支持流式和非流式响应
-- 支持 OpenAI 风格图片输入转 Gemini 多模态请求
 - 支持 Gemini 思考内容透传
 - 支持代理 Bearer Key 校验
 - 支持从 Vertex 动态拉取可用模型
@@ -261,37 +260,6 @@ Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8787/v1/models
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8787/v1/models?refresh=1
 ```
 
-### 发送带图片的聊天请求
-
-支持这些常见输入形式：
-
-- `messages[].content[].type = "image_url"`
-- `messages[].content[].type = "input_image"`
-- `data:` base64 图片
-- 普通 `http/https` 图片地址
-
-示例：
-
-```json
-{
-  "model": "gemini-2.5-flash",
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        { "type": "text", "text": "描述这张图。" },
-        {
-          "type": "image_url",
-          "image_url": {
-            "url": "https://example.com/demo.png"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
 ### 非流式聊天
 
 ```powershell
@@ -409,3 +377,4 @@ PORT=8787
 - 仓库公开时，务必确认 `.gitignore` 生效
 - 如果服务账号曾经泄露，立即去 Google Cloud 轮换密钥
 - 如果开放公网访问，务必设置强密码和 `OPENAI_API_KEY`
+

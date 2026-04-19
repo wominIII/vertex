@@ -12,7 +12,7 @@ export function createOpenAiBridge({ config }) {
     buildStreamFinalChunk,
   };
 
-  async function toVertexPayload(body) {
+  function toVertexPayload(body) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const systemTexts = [];
     const contents = [];
@@ -31,7 +31,7 @@ export function createOpenAiBridge({ config }) {
       const parts =
         role === "assistant"
           ? resolveAssistantParts(message?.content)
-          : await extractOpenAiParts(message?.content);
+          : extractOpenAiParts(message?.content);
 
       if (!parts.length) continue;
 
@@ -230,20 +230,15 @@ export function createOpenAiBridge({ config }) {
       .join("");
   }
 
-  async function extractOpenAiParts(content) {
+  function extractOpenAiParts(content) {
     if (typeof content === "string") {
       return [{ text: content }];
     }
 
     if (Array.isArray(content)) {
-      const parts = [];
-
-      for (const item of content) {
-        const part = await convertContentItemToVertexPart(item);
-        if (part) parts.push(part);
-      }
-
-      return parts;
+      return content
+        .filter((item) => item && item.type === "text" && typeof item.text === "string")
+        .map((item) => ({ text: item.text }));
     }
 
     return [];
@@ -278,97 +273,6 @@ export function createOpenAiBridge({ config }) {
     }
     return text;
   }
-
-  async function convertContentItemToVertexPart(item) {
-    if (!item || typeof item !== "object") return null;
-
-    switch (item.type) {
-      case "text":
-      case "input_text":
-        return typeof item.text === "string" ? { text: item.text } : null;
-      case "image_url":
-      case "input_image":
-      case "image":
-        return createImagePart(item);
-      default:
-        return null;
-    }
-  }
-
-  async function createImagePart(item) {
-    const imageRef = item.image_url ?? item.image ?? item.input_image ?? item.url;
-    const imageUrl =
-      typeof imageRef === "string"
-        ? imageRef
-        : typeof imageRef?.url === "string"
-          ? imageRef.url
-          : typeof imageRef?.image_url === "string"
-            ? imageRef.image_url
-            : typeof imageRef?.uri === "string"
-              ? imageRef.uri
-              : "";
-
-    if (!imageUrl) {
-      throw createInvalidRequestError("Image content item is missing a usable image URL.");
-    }
-
-    if (imageUrl.startsWith("data:")) {
-      return parseDataUrlImagePart(imageUrl);
-    }
-
-    return fetchRemoteImagePart(imageUrl, item);
-  }
-
-  function parseDataUrlImagePart(imageUrl) {
-    const match = imageUrl.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?(;base64)?,([\s\S]+)$/i);
-    if (!match) {
-      throw createInvalidRequestError("Unsupported data URL image format.");
-    }
-
-    const mimeType = normalizeMimeType(match[1], "");
-    const isBase64 = Boolean(match[2]);
-    const rawData = match[3] || "";
-    const data = isBase64
-      ? rawData.replace(/\s+/g, "")
-      : Buffer.from(decodeURIComponent(rawData), "utf8").toString("base64");
-
-    return {
-      inlineData: {
-        mimeType,
-        data,
-      },
-    };
-  }
-
-  async function fetchRemoteImagePart(imageUrl, item) {
-    let response;
-    try {
-      response = await fetch(imageUrl);
-    } catch (error) {
-      throw createInvalidRequestError(
-        `Failed to download image input: ${error.message || "unknown fetch error"}`,
-      );
-    }
-
-    if (!response.ok) {
-      throw createInvalidRequestError(
-        `Failed to download image input: upstream returned ${response.status}.`,
-      );
-    }
-
-    const mimeType = normalizeMimeType(
-      item?.mime_type || item?.mimeType || response.headers.get("content-type"),
-      imageUrl,
-    );
-    const bytes = Buffer.from(await response.arrayBuffer());
-
-    return {
-      inlineData: {
-        mimeType,
-        data: bytes.toString("base64"),
-      },
-    };
-  }
 }
 
 function mapFinishReason(reason) {
@@ -382,40 +286,4 @@ function mapFinishReason(reason) {
     default:
       return "stop";
   }
-}
-
-function normalizeMimeType(mimeType, sourceUrl) {
-  const normalized = String(mimeType || "")
-    .split(";")[0]
-    .trim()
-    .toLowerCase();
-  if (normalized) return normalized;
-
-  const pathname = sourceUrl
-    ? (() => {
-        try {
-          return new URL(sourceUrl).pathname.toLowerCase();
-        } catch {
-          return String(sourceUrl).toLowerCase();
-        }
-      })()
-    : "";
-
-  if (pathname.endsWith(".png")) return "image/png";
-  if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "image/jpeg";
-  if (pathname.endsWith(".webp")) return "image/webp";
-  if (pathname.endsWith(".gif")) return "image/gif";
-  if (pathname.endsWith(".bmp")) return "image/bmp";
-  if (pathname.endsWith(".svg")) return "image/svg+xml";
-  if (pathname.endsWith(".heic")) return "image/heic";
-  if (pathname.endsWith(".heif")) return "image/heif";
-
-  throw createInvalidRequestError("Could not determine the image MIME type for this request.");
-}
-
-function createInvalidRequestError(message) {
-  const error = new Error(message);
-  error.statusCode = 400;
-  error.type = "invalid_request_error";
-  return error;
 }
