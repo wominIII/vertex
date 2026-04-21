@@ -14,18 +14,33 @@ const refreshModelsBtn = document.querySelector("#refreshModelsBtn");
 const saveConfigBtn = document.querySelector("#saveConfigBtn");
 const importCredentialsBtn = document.querySelector("#importCredentialsBtn");
 const changePasswordBtn = document.querySelector("#changePasswordBtn");
+const testTtsBtn = document.querySelector("#testTtsBtn");
+const testImageBtn = document.querySelector("#testImageBtn");
 const statusBox = document.querySelector("#statusBox");
 const modelsBox = document.querySelector("#modelsBox");
+const ttsAudio = document.querySelector("#ttsAudio");
+const ttsResult = document.querySelector("#ttsResult");
+const imagePreview = document.querySelector("#imagePreview");
+const imageResult = document.querySelector("#imageResult");
 
 const fieldIds = [
   "host",
   "port",
   "location",
+  "defaultModel",
+  "defaultEmbeddingModel",
+  "defaultImageModel",
+  "defaultTtsModel",
+  "defaultRerankModel",
+  "ttsLocation",
+  "ttsLanguageCode",
+  "rerankLocation",
   "defaultTemperature",
   "defaultTopP",
   "defaultTopK",
   "defaultMaxOutputTokens",
   "inboundApiKey",
+  "outboundProxyUrl",
   "logLevel",
   "thoughtsMode",
   "thinkingBudget",
@@ -44,6 +59,8 @@ refreshModelsBtn.addEventListener("click", () => loadModels(true));
 saveConfigBtn.addEventListener("click", saveConfig);
 importCredentialsBtn.addEventListener("click", importCredentials);
 changePasswordBtn.addEventListener("click", changePassword);
+testTtsBtn.addEventListener("click", testTts);
+testImageBtn.addEventListener("click", testImage);
 loginPasswordInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     login();
@@ -85,6 +102,7 @@ async function login({ silent = false } = {}) {
     }
 
     fillForm(data.config);
+    fillTestDefaults(data.config);
     statusBox.textContent = JSON.stringify(data.config, null, 2);
     loginOverlay.classList.add("hidden");
     appShell.classList.remove("hidden");
@@ -112,6 +130,7 @@ async function loadConfig() {
   try {
     const data = await api("/api/admin/config");
     fillForm(data.config);
+    fillTestDefaults(data.config);
     statusBox.textContent = JSON.stringify(data.config, null, 2);
   } catch (error) {
     statusBox.textContent = error.message;
@@ -141,6 +160,7 @@ async function saveConfig() {
       body: JSON.stringify(payload),
     });
     fillForm(data.config);
+    fillTestDefaults(data.config);
     statusBox.textContent = `${data.message}\n\n${JSON.stringify(data.config, null, 2)}`;
     flash("配置已保存");
   } catch (error) {
@@ -157,6 +177,7 @@ async function importCredentials() {
       body: JSON.stringify({ jsonText }),
     });
     fillForm(data.config);
+    fillTestDefaults(data.config);
     statusBox.textContent = `${data.message}\n\n${JSON.stringify(data.config, null, 2)}`;
     flash("服务账号 JSON 已导入");
   } catch (error) {
@@ -187,6 +208,93 @@ async function changePassword() {
   }
 }
 
+async function testTts() {
+  const payload = {
+    input: document.querySelector("#ttsInput").value.trim(),
+    instructions: document.querySelector("#ttsInstructions").value.trim(),
+    model: document.querySelector("#ttsModel").value.trim(),
+    voice: document.querySelector("#ttsVoice").value.trim(),
+    responseFormat: document.querySelector("#ttsFormat").value,
+  };
+
+  if (!payload.input) {
+    ttsResult.textContent = "请输入测试文本。";
+    return;
+  }
+
+  testTtsBtn.disabled = true;
+  ttsResult.textContent = "生成中...";
+  ttsAudio.classList.add("hidden");
+
+  try {
+    const data = await api("/api/admin/test-tts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    ttsAudio.src = `data:${data.contentType};base64,${data.audioBase64}`;
+    ttsAudio.classList.remove("hidden");
+    ttsResult.textContent = JSON.stringify(
+      {
+        model: data.model,
+        voice: data.voice,
+        responseFormat: data.responseFormat,
+        contentType: data.contentType,
+      },
+      null,
+      2,
+    );
+  } catch (error) {
+    ttsResult.textContent = error.message;
+  } finally {
+    testTtsBtn.disabled = false;
+  }
+}
+
+async function testImage() {
+  const payload = {
+    prompt: document.querySelector("#imagePrompt").value.trim(),
+    model: document.querySelector("#imageModel").value.trim(),
+    size: document.querySelector("#imageSize").value,
+    n: Number(document.querySelector("#imageCount").value || 1),
+  };
+
+  if (!payload.prompt) {
+    imageResult.textContent = "请输入图片提示词。";
+    return;
+  }
+
+  testImageBtn.disabled = true;
+  imagePreview.innerHTML = "";
+  imageResult.textContent = "生成中...";
+
+  try {
+    const data = await api("/api/admin/test-image", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    for (const image of data.images || []) {
+      if (!image.b64) continue;
+      const img = document.createElement("img");
+      img.alt = "generated image";
+      img.src = `data:${image.mimeType};base64,${image.b64}`;
+      imagePreview.appendChild(img);
+    }
+    imageResult.textContent = JSON.stringify(
+      {
+        model: data.model,
+        count: data.images?.length || 0,
+        mimeTypes: (data.images || []).map((image) => image.mimeType),
+      },
+      null,
+      2,
+    );
+  } catch (error) {
+    imageResult.textContent = error.message;
+  } finally {
+    testImageBtn.disabled = false;
+  }
+}
+
 function fillForm(config) {
   for (const id of fieldIds) {
     const element = document.querySelector(`#${id}`);
@@ -196,6 +304,15 @@ function fillForm(config) {
     } else {
       element.value = config[id] ?? "";
     }
+  }
+}
+
+function fillTestDefaults(config) {
+  const ttsModel = document.querySelector("#ttsModel");
+  const imageModel = document.querySelector("#imageModel");
+  if (ttsModel && !ttsModel.value) ttsModel.placeholder = config.defaultTtsModel || "默认 TTS 模型";
+  if (imageModel && !imageModel.value) {
+    imageModel.placeholder = config.defaultImageModel || "默认文生图模型";
   }
 }
 

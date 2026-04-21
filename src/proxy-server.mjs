@@ -4,12 +4,14 @@ import { createSseParser } from "./sse.mjs";
 import { createAdminUi } from "./admin-ui.mjs";
 
 export function createProxyServer({ config, logger, vertexClient, bridge }) {
-  const adminUi = createAdminUi({ config, logger, vertexClient });
+  const adminUi = createAdminUi({ config, logger, vertexClient, bridge });
 
   return createServer(async (req, res) => {
     const startedAt = Date.now();
     const requestId = randomUUID().slice(0, 8);
     const clientIp = getClientIp(req);
+    const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+    const pathname = url.pathname;
 
     try {
       logger.info(`REQ ${requestId} START ${req.method} ${req.url} from ${clientIp}`);
@@ -42,7 +44,7 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
         return;
       }
 
-      if (req.method === "GET" && req.url === "/healthz") {
+      if (req.method === "GET" && pathname === "/healthz") {
         sendJson(
           res,
           200,
@@ -57,8 +59,7 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
         return;
       }
 
-      if (req.method === "GET" && req.url?.startsWith("/v1/models")) {
-        const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
+      if (req.method === "GET" && pathname === "/v1/models") {
         const modelIds = await vertexClient.fetchAvailableModels(
           url.searchParams.get("refresh") === "1",
         );
@@ -80,7 +81,7 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
         return;
       }
 
-      if (req.method === "POST" && req.url === "/v1/chat/completions") {
+      if (req.method === "POST" && pathname === "/v1/chat/completions") {
         await handleChatCompletions(req, res, {
           config,
           logger,
@@ -88,6 +89,26 @@ export function createProxyServer({ config, logger, vertexClient, bridge }) {
           bridge,
           requestId,
         });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/v1/embeddings") {
+        await handleEmbeddings(req, res, { logger, vertexClient, bridge, requestId });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/v1/images/generations") {
+        await handleImageGenerations(req, res, { logger, vertexClient, bridge, requestId });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/v1/audio/speech") {
+        await handleAudioSpeech(req, res, { logger, vertexClient, bridge, requestId });
+        return;
+      }
+
+      if (req.method === "POST" && (pathname === "/v1/rerank" || pathname === "/v1/rank")) {
+        await handleRerank(req, res, { logger, vertexClient, bridge, requestId });
         return;
       }
 
@@ -208,6 +229,7 @@ async function streamChatCompletion(
   let emittedRole = false;
   let clientClosed = false;
   let eventCount = 0;
+  let sawToolCalls = false;
 
   req.on("close", () => {
     clientClosed = true;
@@ -246,6 +268,9 @@ async function streamChatCompletion(
 
     eventCount += 1;
     accumulatedParts.push(...candidate.content.parts);
+    if (candidate.content.parts.some((part) => part?.functionCall)) {
+      sawToolCalls = true;
+    }
 
     const chunks = bridge.buildStreamingChunks({
       requestModel: requestedModel,
@@ -283,6 +308,7 @@ async function streamChatCompletion(
           created,
           completionId,
           finishReason: finalCandidate.finishReason,
+          hasToolCalls: sawToolCalls,
         }),
       );
       res.write("data: [DONE]\n\n");
@@ -331,6 +357,7 @@ async function streamChatCompletion(
             created,
             completionId,
             finishReason: finalCandidate.finishReason,
+            hasToolCalls: sawToolCalls,
           }),
         );
         res.write("data: [DONE]\n\n");
@@ -357,6 +384,112 @@ async function streamChatCompletion(
       }
     }
   }
+}
+
+async function handleEmbeddings(req, res, { logger, vertexClient, bridge, requestId }) {
+  const body = await readJsonBody(req);
+  const requests = bridge.toEmbeddingRequests(body);
+  const predictionPayloads = [];
+
+  logger.info(`REQ ${requestId} EMBEDDINGS model=${requests[0]?.model || ""} inputs=${requests.length}`);
+
+  for (const request of requests) {
+    const response = await vertexClient.predictModel(request.model, request.payload);
+    predictionPayloads.push({
+      index: request.index,
+      payload: await response.json(),
+    });
+  }
+
+  const payload = bridge.makeEmbeddingResponse({
+    model: requests[0]?.model || "",
+    encodingFormat: requests[0]?.encodingFormat || "float",
+    predictionPayloads,
+  });
+
+  logger.info("Completed embeddings request", {
+    requestId,
+    model: payload.model,
+    count: payload.data.length,
+  });
+
+  sendJson(res, 200, payload, logger);
+}
+
+async function handleImageGenerations(req, res, { logger, vertexClient, bridge, requestId }) {
+  const body = await readJsonBody(req);
+  const imageRequest = bridge.toImagePayload(body);
+
+  logger.info(`REQ ${requestId} IMAGE model=${imageRequest.model}`);
+
+  const response = await vertexClient.predictModel(imageRequest.model, imageRequest.payload);
+  const vertexPayload = await response.json();
+  const payload = bridge.makeImageResponse({
+    responseFormat: imageRequest.responseFormat,
+    payload: vertexPayload,
+  });
+
+  logger.info("Completed image generation request", {
+    requestId,
+    model: imageRequest.model,
+    count: payload.data.length,
+  });
+
+  sendJson(res, 200, payload, logger);
+}
+
+async function handleAudioSpeech(req, res, { logger, vertexClient, bridge, requestId }) {
+  const body = await readJsonBody(req);
+  const speechRequest = bridge.toSpeechPayload(body);
+
+  logger.info(`REQ ${requestId} SPEECH model=${speechRequest.model} format=${speechRequest.responseFormat}`);
+
+  const response = await vertexClient.synthesizeSpeech(speechRequest.payload);
+  const payload = await response.json();
+  const audioContent = payload.audioContent || "";
+
+  if (!audioContent) {
+    const error = new Error("Text-to-Speech response did not include audioContent.");
+    error.statusCode = 502;
+    error.type = "server_error";
+    throw error;
+  }
+
+  const audio = Buffer.from(audioContent, "base64");
+  logger.info("Completed speech synthesis request", {
+    requestId,
+    model: speechRequest.model,
+    bytes: audio.length,
+  });
+
+  sendBinary(res, 200, audio, bridge.getSpeechContentType(speechRequest.responseFormat), logger);
+}
+
+async function handleRerank(req, res, { logger, vertexClient, bridge, requestId }) {
+  const body = await readJsonBody(req);
+  const rerankRequest = bridge.toRerankPayload(body);
+
+  logger.info(
+    `REQ ${requestId} RERANK model=${rerankRequest.model} records=${rerankRequest.payload.records.length}`,
+  );
+
+  const response = await vertexClient.rankRecords(rerankRequest.payload);
+  const vertexPayload = await response.json();
+  const payload = bridge.makeRerankResponse({
+    model: rerankRequest.model,
+    sourceDocuments: rerankRequest.sourceDocuments,
+    idToIndex: rerankRequest.idToIndex,
+    returnDocuments: rerankRequest.returnDocuments,
+    payload: vertexPayload,
+  });
+
+  logger.info("Completed rerank request", {
+    requestId,
+    model: rerankRequest.model,
+    count: payload.results.length,
+  });
+
+  sendJson(res, 200, payload, logger);
 }
 
 function resolveVertexModel(requestedModel, config) {
@@ -402,6 +535,23 @@ function sendJson(res, status, payload, logger) {
   res.end(JSON.stringify(payload, null, 2));
 }
 
+function sendBinary(res, status, payload, contentType, logger) {
+  if (res.headersSent || res.writableEnded) {
+    logger.error("Attempted to send binary after response was already started", {
+      status,
+      contentType,
+    });
+    return;
+  }
+
+  writeCors(res);
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "Content-Length": payload.length,
+  });
+  res.end(payload);
+}
+
 function sendError(res, status, message, type, logger) {
   sendJson(
     res,
@@ -422,7 +572,7 @@ function writeSse(res, payload) {
 
 function writeCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Password");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 }
 

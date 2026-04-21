@@ -6,6 +6,13 @@ const DEFAULTS = {
   port: 8787,
   location: "global",
   defaultModel: "gemini-3.1-pro-preview",
+  defaultEmbeddingModel: "gemini-embedding-001",
+  defaultImageModel: "imagen-4.0-generate-001",
+  defaultTtsModel: "gemini-3.1-flash-tts-preview",
+  defaultRerankModel: "semantic-ranker-default@latest",
+  ttsLocation: "global",
+  ttsLanguageCode: "",
+  rerankLocation: "global",
   defaultTemperature: null,
   defaultTopP: null,
   defaultTopK: null,
@@ -22,6 +29,9 @@ const DEFAULTS = {
   oauthTokenUrl: "https://oauth2.googleapis.com/token",
   vertexApiBaseUrl: "https://aiplatform.googleapis.com",
   publisherModelsBaseUrl: "https://aiplatform.googleapis.com",
+  textToSpeechApiBaseUrl: "",
+  discoveryEngineApiBaseUrl: "https://discoveryengine.googleapis.com",
+  outboundProxyUrl: "",
   adminPassword: "vertex-admin",
 };
 
@@ -39,6 +49,13 @@ export function createConfig({ cwd = process.cwd(), env = process.env } = {}) {
     location: env.VERTEX_LOCATION || DEFAULTS.location,
     projectId: env.VERTEX_PROJECT_ID || credentialsInfo.credentials?.project_id || "",
     defaultModel: env.VERTEX_MODEL || DEFAULTS.defaultModel,
+    defaultEmbeddingModel: env.VERTEX_EMBEDDING_MODEL || DEFAULTS.defaultEmbeddingModel,
+    defaultImageModel: env.VERTEX_IMAGE_MODEL || DEFAULTS.defaultImageModel,
+    defaultTtsModel: env.VERTEX_TTS_MODEL || DEFAULTS.defaultTtsModel,
+    defaultRerankModel: env.VERTEX_RERANK_MODEL || DEFAULTS.defaultRerankModel,
+    ttsLocation: env.TTS_LOCATION || env.VERTEX_TTS_LOCATION || DEFAULTS.ttsLocation,
+    ttsLanguageCode: env.TTS_LANGUAGE_CODE || DEFAULTS.ttsLanguageCode,
+    rerankLocation: env.RERANK_LOCATION || DEFAULTS.rerankLocation,
     defaultTemperature: parseOptionalNumber(env.DEFAULT_TEMPERATURE, DEFAULTS.defaultTemperature),
     defaultTopP: parseOptionalNumber(env.DEFAULT_TOP_P, DEFAULTS.defaultTopP),
     defaultTopK: parseOptionalNumber(env.DEFAULT_TOP_K, DEFAULTS.defaultTopK),
@@ -64,6 +81,20 @@ export function createConfig({ cwd = process.cwd(), env = process.env } = {}) {
     publisherModelsBaseUrl: trimTrailingSlash(
       env.PUBLISHER_MODELS_BASE_URL || DEFAULTS.publisherModelsBaseUrl,
     ),
+    textToSpeechApiBaseUrl: trimTrailingSlash(
+      env.TEXT_TO_SPEECH_API_BASE_URL ||
+        DEFAULTS.textToSpeechApiBaseUrl ||
+        buildTextToSpeechBaseUrl(env.TTS_LOCATION || env.VERTEX_TTS_LOCATION || DEFAULTS.ttsLocation),
+    ),
+    discoveryEngineApiBaseUrl: trimTrailingSlash(
+      env.DISCOVERY_ENGINE_API_BASE_URL || DEFAULTS.discoveryEngineApiBaseUrl,
+    ),
+    outboundProxyUrl: normalizeProxyUrl(
+      env.OUTBOUND_PROXY_URL ||
+        env.INTERNAL_PROXY_URL ||
+        env.UPSTREAM_PROXY_URL ||
+        DEFAULTS.outboundProxyUrl,
+    ),
     credentials: credentialsInfo.credentials,
     credentialsSource: credentialsInfo.source,
   };
@@ -79,6 +110,13 @@ export function formatStartupSummary(config) {
     projectId: config.projectId,
     location: config.location,
     defaultModel: config.defaultModel,
+    defaultEmbeddingModel: config.defaultEmbeddingModel,
+    defaultImageModel: config.defaultImageModel,
+    defaultTtsModel: config.defaultTtsModel,
+    defaultRerankModel: config.defaultRerankModel,
+    ttsLocation: config.ttsLocation,
+    ttsLanguageCode: config.ttsLanguageCode,
+    rerankLocation: config.rerankLocation,
     defaultTemperature: config.defaultTemperature,
     defaultTopP: config.defaultTopP,
     defaultTopK: config.defaultTopK,
@@ -91,6 +129,7 @@ export function formatStartupSummary(config) {
     thinkingBudget: config.thinkingBudget,
     maxFetchAttempts: config.maxFetchAttempts,
     fetchRetryDelayMs: config.fetchRetryDelayMs,
+    outboundProxyUrl: maskSecret(config.outboundProxyUrl),
     credentialsSource: config.credentialsSource,
   };
 }
@@ -232,6 +271,21 @@ function parseOptionalNumber(value, fallback = null) {
 
 function trimTrailingSlash(value) {
   return String(value).replace(/\/+$/, "");
+}
+
+function buildTextToSpeechBaseUrl(location) {
+  const normalized = String(location || "global").trim().toLowerCase();
+  if (!normalized || normalized === "global") {
+    return "https://texttospeech.googleapis.com";
+  }
+  return `https://${normalized}-texttospeech.googleapis.com`;
+}
+
+function normalizeProxyUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+  return `http://${raw}`;
 }
 
 function maskSecret(value) {

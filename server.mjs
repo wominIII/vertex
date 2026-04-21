@@ -62,6 +62,7 @@ function buildStartupView(config) {
       ...(lanAdminUrl ? [`局域网后台    ${lanAdminUrl}`] : []),
       `监听地址      http://${config.host}:${config.port}`,
       `默认模型      ${config.defaultModel}`,
+      `上游代理      ${config.outboundProxyUrl ? "已启用" : "未启用"}`,
       `思考内容      ${config.includeThoughts ? "开启" : "关闭"}`,
       `流式传输      ${config.enableStreaming ? "开启" : "关闭"}`,
       "============================================================",

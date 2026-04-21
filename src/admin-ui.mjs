@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { toRelativeCredentialPath } from "./config.mjs";
 
-export function createAdminUi({ config, logger, vertexClient }) {
+export function createAdminUi({ config, logger, vertexClient, bridge }) {
   const uiRoot = join(config.cwd, "ui");
 
   return {
@@ -67,6 +67,77 @@ export function createAdminUi({ config, logger, vertexClient }) {
         ok: true,
         count: models.length,
         models,
+      });
+    }
+
+    if (req.method === "POST" && pathname === "/api/admin/test-tts") {
+      const body = await readJsonBody(req);
+      const speechRequest = bridge.toSpeechPayload({
+        model: body.model || config.defaultTtsModel,
+        voice: body.voice || "alloy",
+        input: body.input,
+        response_format: body.responseFormat || "mp3",
+        instructions: body.instructions,
+        language: body.language,
+        speed: body.speed,
+      });
+      const response = await vertexClient.synthesizeSpeech(speechRequest.payload);
+      const payload = await response.json();
+      const audioBase64 = payload.audioContent || "";
+
+      if (!audioBase64) {
+        return sendJson(res, 502, {
+          error: {
+            message: "Text-to-Speech response did not include audioContent.",
+            type: "server_error",
+          },
+        });
+      }
+
+      logger.info("Admin UI tested TTS", {
+        model: speechRequest.model,
+        voice: speechRequest.payload.voice?.name || "",
+        format: speechRequest.responseFormat,
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        model: speechRequest.model,
+        voice: speechRequest.payload.voice,
+        responseFormat: speechRequest.responseFormat,
+        contentType: bridge.getSpeechContentType(speechRequest.responseFormat),
+        audioBase64,
+      });
+    }
+
+    if (req.method === "POST" && pathname === "/api/admin/test-image") {
+      const body = await readJsonBody(req);
+      const imageRequest = bridge.toImagePayload({
+        model: body.model || config.defaultImageModel,
+        prompt: body.prompt,
+        n: body.n || 1,
+        size: body.size || "1024x1024",
+        aspect_ratio: body.aspectRatio,
+        response_format: "b64_json",
+        output_format: body.outputFormat || "png",
+      });
+      const response = await vertexClient.predictModel(imageRequest.model, imageRequest.payload);
+      const vertexPayload = await response.json();
+      const predictions = Array.isArray(vertexPayload?.predictions) ? vertexPayload.predictions : [];
+
+      logger.info("Admin UI tested image generation", {
+        model: imageRequest.model,
+        count: predictions.length,
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        model: imageRequest.model,
+        images: predictions.map((prediction) => ({
+          b64: prediction.bytesBase64Encoded || prediction.image || "",
+          mimeType: prediction.mimeType || "image/png",
+          revisedPrompt: prediction.prompt || "",
+        })),
       });
     }
 
@@ -143,6 +214,14 @@ function serializeConfig(config) {
     host: config.host,
     port: config.port,
     location: config.location,
+    defaultModel: config.defaultModel,
+    defaultEmbeddingModel: config.defaultEmbeddingModel,
+    defaultImageModel: config.defaultImageModel,
+    defaultTtsModel: config.defaultTtsModel,
+    defaultRerankModel: config.defaultRerankModel,
+    ttsLocation: config.ttsLocation,
+    ttsLanguageCode: config.ttsLanguageCode,
+    rerankLocation: config.rerankLocation,
     defaultTemperature: config.defaultTemperature,
     defaultTopP: config.defaultTopP,
     defaultTopK: config.defaultTopK,
@@ -150,6 +229,7 @@ function serializeConfig(config) {
     inboundApiKey: config.inboundApiKey,
     adminPasswordEnabled: Boolean(config.adminPassword),
     logLevel: config.logLevel,
+    outboundProxyUrl: config.outboundProxyUrl,
     includeThoughts: config.includeThoughts,
     enableStreaming: config.enableStreaming,
     thoughtsMode: config.thoughtsMode,
@@ -165,6 +245,31 @@ function applyConfigUpdates(config, body) {
   if (typeof body.host === "string" && body.host.trim()) config.host = body.host.trim();
   if (body.port !== undefined) config.port = toInt(body.port, config.port);
   if (typeof body.location === "string" && body.location.trim()) config.location = body.location.trim();
+  if (typeof body.defaultModel === "string" && body.defaultModel.trim()) {
+    config.defaultModel = body.defaultModel.trim();
+  }
+  if (typeof body.defaultEmbeddingModel === "string" && body.defaultEmbeddingModel.trim()) {
+    config.defaultEmbeddingModel = body.defaultEmbeddingModel.trim();
+  }
+  if (typeof body.defaultImageModel === "string" && body.defaultImageModel.trim()) {
+    config.defaultImageModel = body.defaultImageModel.trim();
+  }
+  if (typeof body.defaultTtsModel === "string" && body.defaultTtsModel.trim()) {
+    config.defaultTtsModel = body.defaultTtsModel.trim();
+  }
+  if (typeof body.defaultRerankModel === "string" && body.defaultRerankModel.trim()) {
+    config.defaultRerankModel = body.defaultRerankModel.trim();
+  }
+  if (typeof body.ttsLocation === "string" && body.ttsLocation.trim()) {
+    config.ttsLocation = body.ttsLocation.trim();
+    config.textToSpeechApiBaseUrl = buildTextToSpeechBaseUrl(config.ttsLocation);
+  }
+  if (body.ttsLanguageCode !== undefined) {
+    config.ttsLanguageCode = String(body.ttsLanguageCode || "").trim();
+  }
+  if (typeof body.rerankLocation === "string" && body.rerankLocation.trim()) {
+    config.rerankLocation = body.rerankLocation.trim();
+  }
   if (body.defaultTemperature !== undefined) {
     config.defaultTemperature = toOptionalNumber(body.defaultTemperature, config.defaultTemperature);
   }
@@ -181,6 +286,9 @@ function applyConfigUpdates(config, body) {
     );
   }
   if (body.inboundApiKey !== undefined) config.inboundApiKey = String(body.inboundApiKey || "");
+  if (body.outboundProxyUrl !== undefined) {
+    config.outboundProxyUrl = normalizeProxyUrl(body.outboundProxyUrl);
+  }
   if (typeof body.logLevel === "string" && body.logLevel.trim()) config.logLevel = body.logLevel.trim();
   if (body.includeThoughts !== undefined) config.includeThoughts = Boolean(body.includeThoughts);
   if (body.enableStreaming !== undefined) config.enableStreaming = Boolean(body.enableStreaming);
@@ -211,6 +319,13 @@ function persistEnvFile(config) {
     `VERTEX_PROJECT_ID=${config.projectId}`,
     `VERTEX_LOCATION=${config.location}`,
     `VERTEX_MODEL=${config.defaultModel}`,
+    `VERTEX_EMBEDDING_MODEL=${config.defaultEmbeddingModel}`,
+    `VERTEX_IMAGE_MODEL=${config.defaultImageModel}`,
+    `VERTEX_TTS_MODEL=${config.defaultTtsModel}`,
+    `VERTEX_RERANK_MODEL=${config.defaultRerankModel}`,
+    `TTS_LOCATION=${config.ttsLocation}`,
+    `TTS_LANGUAGE_CODE=${config.ttsLanguageCode}`,
+    `RERANK_LOCATION=${config.rerankLocation}`,
     `DEFAULT_TEMPERATURE=${toEnvValue(config.defaultTemperature)}`,
     `DEFAULT_TOP_P=${toEnvValue(config.defaultTopP)}`,
     `DEFAULT_TOP_K=${toEnvValue(config.defaultTopK)}`,
@@ -226,6 +341,9 @@ function persistEnvFile(config) {
     `LOG_LEVEL=${config.logLevel}`,
     `MAX_FETCH_ATTEMPTS=${config.maxFetchAttempts}`,
     `FETCH_RETRY_DELAY_MS=${config.fetchRetryDelayMs}`,
+    "",
+    "# Optional outbound HTTP proxy for Google APIs. Examples: http://127.0.0.1:7890 or 127.0.0.1:7890",
+    `OUTBOUND_PROXY_URL=${config.outboundProxyUrl}`,
     "",
     "# Thought exposure",
     `INCLUDE_THOUGHTS=${config.includeThoughts}`,
@@ -306,4 +424,19 @@ function toOptionalNumber(value, fallback = null) {
 
 function toEnvValue(value) {
   return value === null || value === undefined ? "" : value;
+}
+
+function normalizeProxyUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+  return `http://${raw}`;
+}
+
+function buildTextToSpeechBaseUrl(location) {
+  const normalized = String(location || "global").trim().toLowerCase();
+  if (!normalized || normalized === "global") {
+    return "https://texttospeech.googleapis.com";
+  }
+  return `https://${normalized}-texttospeech.googleapis.com`;
 }

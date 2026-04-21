@@ -14,9 +14,15 @@
 - `GET /healthz`
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `POST /v1/embeddings`
+- `POST /v1/images/generations`
+- `POST /v1/audio/speech`
+- `POST /v1/rerank`
 - `GET /admin` 管理控制台
 - 支持流式和非流式响应
 - 支持 OpenAI 风格图片输入转 Gemini 多模态请求
+- 支持 OpenAI 风格工具调用转 Gemini Function Calling
+- 支持 Vertex embeddings、Imagen 文生图、Gemini-TTS / Cloud TTS、Discovery Engine rerank
 - 支持 Gemini 思考内容透传
 - 支持代理 Bearer Key 校验
 - 支持从 Vertex 动态拉取可用模型
@@ -77,6 +83,11 @@ PORT=8787
 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json
 VERTEX_PROJECT_ID=your-gcp-project-id
 VERTEX_LOCATION=global
+VERTEX_MODEL=gemini-3.1-pro-preview
+VERTEX_EMBEDDING_MODEL=gemini-embedding-001
+VERTEX_IMAGE_MODEL=imagen-4.0-generate-001
+VERTEX_TTS_MODEL=gemini-3.1-flash-tts-preview
+VERTEX_RERANK_MODEL=semantic-ranker-default@latest
 OPENAI_API_KEY=your-local-proxy-key
 ADMIN_PASSWORD=vertex-admin
 ```
@@ -183,11 +194,27 @@ HOST=0.0.0.0
   默认 `global`
 - `VERTEX_MODEL`
   当客户端没有传 `model` 时使用的默认模型
+- `VERTEX_EMBEDDING_MODEL`
+  `/v1/embeddings` 默认模型
+- `VERTEX_IMAGE_MODEL`
+  `/v1/images/generations` 默认模型
+- `VERTEX_TTS_MODEL`
+  `/v1/audio/speech` 默认模型
+- `VERTEX_RERANK_MODEL`
+  `/v1/rerank` 默认模型
+- `TTS_LOCATION`
+  Text-to-Speech 区域，默认 `global`
+- `TTS_LANGUAGE_CODE`
+  TTS 默认语言，留空会按输入文本粗略判断中文、日文、韩文或英文
+- `RERANK_LOCATION`
+  Discovery Engine Ranking API 区域，默认 `global`
 
 ### 代理鉴权
 
 - `OPENAI_API_KEY`
   上游客户端访问代理时使用的 Bearer Key
+- `OUTBOUND_PROXY_URL`
+  代理访问 Google API 时使用的上游 HTTP 代理。支持 `http://127.0.0.1:7890` 或 `127.0.0.1:7890`，留空则直连
 
 客户端请求头示例：
 
@@ -240,6 +267,22 @@ Authorization: Bearer your-local-proxy-key
   Google OAuth 和 Vertex 请求失败时的最大重试次数
 - `FETCH_RETRY_DELAY_MS`
   重试间隔毫秒数
+
+### 内部上游代理
+
+如果部署在 Linux 服务器上，需要通过内网 HTTP 代理访问 Google API，可以在管理控制台填写“上游 HTTP 代理”，或在 `.env` 中设置：
+
+```env
+OUTBOUND_PROXY_URL=http://127.0.0.1:7890
+```
+
+也可以省略协议：
+
+```env
+OUTBOUND_PROXY_URL=10.0.0.2:7890
+```
+
+这个代理只影响本服务访问 Google OAuth、Vertex AI、Text-to-Speech、Discovery Engine 等上游 API，不影响客户端访问本代理的入站地址。
 
 ## OpenAI 兼容接口
 
@@ -313,6 +356,86 @@ Invoke-WebRequest `
   -Headers @{ Authorization = "Bearer your-local-proxy-key" } `
   -ContentType "application/json" `
   -Body $body | Select-Object -ExpandProperty Content
+```
+
+### 工具调用
+
+代理会把 OpenAI `tools` / `tool_choice` 转成 Gemini Function Calling，并把 Gemini `functionCall` 转回 OpenAI `tool_calls`。
+
+```json
+{
+  "model": "gemini-2.5-flash",
+  "messages": [
+    { "role": "user", "content": "上海天气怎么样？" }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "查询城市天气",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" }
+          },
+          "required": ["city"]
+        }
+      }
+    }
+  ]
+}
+```
+
+兼容旧版 OpenAI `functions` / `function_call` 字段。
+
+### 向量 Embeddings
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8787/v1/embeddings `
+  -Headers @{ Authorization = "Bearer your-local-proxy-key" } `
+  -ContentType "application/json" `
+  -Body '{"model":"gemini-embedding-001","input":["hello","world"]}'
+```
+
+### 文生图
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8787/v1/images/generations `
+  -Headers @{ Authorization = "Bearer your-local-proxy-key" } `
+  -ContentType "application/json" `
+  -Body '{"model":"imagen-4.0-generate-001","prompt":"a small red boat on water","n":1,"size":"1024x1024","response_format":"b64_json"}'
+```
+
+### TTS
+
+返回值是音频二进制，不是 JSON。
+
+```powershell
+Invoke-WebRequest `
+  -Method Post `
+  -Uri http://127.0.0.1:8787/v1/audio/speech `
+  -Headers @{ Authorization = "Bearer your-local-proxy-key" } `
+  -ContentType "application/json" `
+  -Body '{"model":"tts-1","voice":"alloy","input":"你好，欢迎使用 Vertex 代理。","response_format":"mp3"}' `
+  -OutFile speech.mp3
+```
+
+OpenAI 的 `alloy`、`echo`、`fable`、`onyx`、`nova`、`shimmer` 会映射到 Gemini-TTS 预置声音。也可以直接把 `voice` 写成 Google 的声音名，例如 `Kore`、`Charon`、`Aoede`。
+
+### 重排 Rerank
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8787/v1/rerank `
+  -Headers @{ Authorization = "Bearer your-local-proxy-key" } `
+  -ContentType "application/json" `
+  -Body '{"query":"what is Google Gemini?","documents":["Gemini is a constellation.","Gemini is a Google model."],"top_n":2}'
 ```
 
 ## Cherry Studio 接入

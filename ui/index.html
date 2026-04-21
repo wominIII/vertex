@@ -68,6 +68,84 @@
       <section class="card">
         <div class="card-head">
           <div>
+            <h2>TTS 测试</h2>
+            <p>使用当前服务账号和上游代理配置生成一段音频。</p>
+          </div>
+          <button id="testTtsBtn">生成语音</button>
+        </div>
+        <div class="form-grid">
+          <label class="field wide">
+            <span>文本</span>
+            <textarea id="ttsInput" placeholder="输入要朗读的文字">你好，这是 Vertex TTS 测试。</textarea>
+          </label>
+          <label class="field wide">
+            <span>情绪 / 朗读指令</span>
+            <textarea
+              id="ttsInstructions"
+              placeholder="例如：用温柔、松了一口气的语气朗读，语速稍慢，停顿自然。"
+            ></textarea>
+          </label>
+          <label class="field">
+            <span>模型</span>
+            <input id="ttsModel" type="text" placeholder="留空使用默认 TTS 模型" />
+          </label>
+          <label class="field">
+            <span>音色</span>
+            <input id="ttsVoice" type="text" value="alloy" />
+          </label>
+          <label class="field">
+            <span>格式</span>
+            <select id="ttsFormat">
+              <option value="mp3">mp3</option>
+              <option value="wav">wav</option>
+              <option value="opus">opus</option>
+              <option value="pcm">pcm</option>
+            </select>
+          </label>
+        </div>
+        <audio id="ttsAudio" class="media-preview hidden" controls></audio>
+        <pre id="ttsResult" class="codebox small">等待测试</pre>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>文生图测试</h2>
+            <p>使用当前服务账号和上游代理配置生成图片。</p>
+          </div>
+          <button id="testImageBtn">生成图片</button>
+        </div>
+        <div class="form-grid">
+          <label class="field wide">
+            <span>提示词</span>
+            <textarea id="imagePrompt" placeholder="输入图片提示词">a clean product photo of a glass teapot on a wooden table</textarea>
+          </label>
+          <label class="field">
+            <span>模型</span>
+            <input id="imageModel" type="text" placeholder="留空使用默认文生图模型" />
+          </label>
+          <label class="field">
+            <span>尺寸</span>
+            <select id="imageSize">
+              <option value="1024x1024">1024x1024</option>
+              <option value="1024x768">1024x768</option>
+              <option value="768x1024">768x1024</option>
+              <option value="1280x720">1280x720</option>
+              <option value="720x1280">720x1280</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>数量</span>
+            <input id="imageCount" type="number" min="1" max="4" value="1" />
+          </label>
+        </div>
+        <div id="imagePreview" class="image-preview"></div>
+        <pre id="imageResult" class="codebox small">等待测试</pre>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
             <h2>配置开关</h2>
             <p>保存后会写回 `.env`。`HOST`、`PORT` 建议重启后生效。</p>
           </div>
@@ -86,6 +164,38 @@
           <label class="field">
             <span>区域</span>
             <input id="location" type="text" />
+          </label>
+          <label class="field">
+            <span>默认聊天模型</span>
+            <input id="defaultModel" type="text" />
+          </label>
+          <label class="field">
+            <span>默认向量模型</span>
+            <input id="defaultEmbeddingModel" type="text" />
+          </label>
+          <label class="field">
+            <span>默认文生图模型</span>
+            <input id="defaultImageModel" type="text" />
+          </label>
+          <label class="field">
+            <span>默认 TTS 模型</span>
+            <input id="defaultTtsModel" type="text" />
+          </label>
+          <label class="field">
+            <span>默认重排模型</span>
+            <input id="defaultRerankModel" type="text" />
+          </label>
+          <label class="field">
+            <span>TTS 区域</span>
+            <input id="ttsLocation" type="text" />
+          </label>
+          <label class="field">
+            <span>TTS 语言</span>
+            <input id="ttsLanguageCode" type="text" placeholder="留空自动判断" />
+          </label>
+          <label class="field">
+            <span>重排区域</span>
+            <input id="rerankLocation" type="text" />
           </label>
           <label class="field">
             <span>默认温度</span>
@@ -111,6 +221,10 @@
           <label class="field">
             <span>代理 Bearer Key</span>
             <input id="inboundApiKey" type="text" />
+          </label>
+          <label class="field">
+            <span>上游 HTTP 代理</span>
+            <input id="outboundProxyUrl" type="text" placeholder="127.0.0.1:7890" />
           </label>
           <label class="field">
             <span>日志级别</span>
